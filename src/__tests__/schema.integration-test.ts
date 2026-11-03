@@ -44,3 +44,42 @@ describe('CoreApiClient', () => {
     });
   });
 });
+
+// TCA-25: Person carries the four PostHog summary fields after `app apply`.
+describe('Person PostHog fields', () => {
+  it('should expose the four fields with the right types', async () => {
+    const client = new MetadataApiClient();
+
+    const result = await client.query({
+      objects: {
+        __args: { filter: {}, paging: { first: 100 } },
+        edges: {
+          node: {
+            nameSingular: true,
+            fields: {
+              __args: { filter: {}, paging: { first: 200 } },
+              edges: { node: { name: true, type: true } },
+            },
+          },
+        },
+      },
+    });
+
+    const person = result.objects.edges.find(
+      (e: { node: { nameSingular: string } }) => e.node.nameSingular === 'person',
+    );
+    const types = Object.fromEntries(
+      person!.node.fields.edges.map((e: { node: { name: string; type: string } }) => [
+        e.node.name,
+        e.node.type,
+      ]),
+    );
+
+    expect(types).toMatchObject({
+      posthogLastSeenAt: 'DATE_TIME',
+      posthogLastPage: 'LINKS',
+      posthogPageviews30d: 'NUMBER',
+      posthogProfile: 'LINKS',
+    });
+  });
+});
