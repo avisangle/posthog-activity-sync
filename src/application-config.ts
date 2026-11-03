@@ -11,6 +11,7 @@ import {
 } from 'src/constants/universal-identifiers';
 
 const REPOSITORY_URL = 'https://github.com/avisangle/posthog-activity-sync';
+const POSTHOG_US_HOST = 'https://us.posthog.com';
 
 export default defineApplication({
   universalIdentifier: APPLICATION_UNIVERSAL_IDENTIFIER,
@@ -30,11 +31,11 @@ export default defineApplication({
         'Where your PostHog project is hosted. Choose "Self-hosted" to use the custom host below.',
       type: FieldType.SELECT,
       options: [
-        { label: 'PostHog Cloud US', value: 'https://us.posthog.com' },
+        { label: 'PostHog Cloud US', value: POSTHOG_US_HOST },
         { label: 'PostHog Cloud EU', value: 'https://eu.posthog.com' },
         { label: 'Self-hosted (custom host)', value: 'custom' },
       ],
-      value: 'https://us.posthog.com',
+      value: POSTHOG_US_HOST,
       isRequired: true,
       scope: 'WORKSPACE',
     },
