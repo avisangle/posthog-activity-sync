@@ -1,10 +1,11 @@
 # D-TCA-22: Confirmed PostHog query shapes, error matrix and Twenty write method
-**Status:** Accepted; TCA-24 Impact line superseded by D-TCA-24-caller-clock-windows
+**Status:** Accepted; partly superseded by D-TCA-24-caller-clock-windows (pageviewCounts and latestEvents texts, profile URL host)
 **Date:** 2026-11-04
 **Issue:** TCA-22
 **Confluence:** none
 
-**Decision:** The app talks to PostHog with four fixed HogQL queries (texts below) posted to
+**Decision:** The app talks to PostHog with four fixed HogQL queries (texts below; two shipped as
+amended by D-TCA-24-caller-clock-windows) posted to
 `{host}/api/projects/{id}/query/` with `refresh: 'force_blocking'`, every value bound through
 `values` and every query carrying an explicit `LIMIT`. Errors map to kinds by HTTP status plus
 the body's `code` and `detail`. The health check uses only the HogQL probe. Profile links are
@@ -63,7 +64,9 @@ creates a blank Person for an unknown id and restores a soft-deleted Person (det
   `appHost` is the configured `POSTHOG_HOST` (the app host, not the `.i.` ingestion host) and
   `person_id` is the column of that name from activeSince or latestEvents.
   Superseded for the pageviewCounts and latestEvents texts by D-TCA-24-caller-clock-windows,
-  which binds their window from the caller's `now` and latestEvents' `LIMIT {limit}`.
+  which binds their window from the caller's `now` and latestEvents' `LIMIT {limit}`. Also
+  superseded there: `appHost` is `readSettings().host`, which is `POSTHOG_CUSTOM_HOST` when
+  `POSTHOG_HOST` is `custom` (the stored value `custom` is not a host).
 - **TCA-26 (health check):** only the healthProbe query; no `GET /api/projects/{id}/`. A wrong
   region surfaces as `unauthorized` (the key is unknown in the other region), so its message must
   mention the host setting.
