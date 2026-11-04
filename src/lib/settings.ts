@@ -8,17 +8,13 @@ export type SettingsResult =
 
 type Env = Record<string, string | undefined>;
 
-const clean = (value: string | undefined) => (value ?? '').trim().replace(/\/+$/, '');
+const clean = (value: string | undefined) => (value ?? '').trim();
 
 // Returns a reason when the host is unusable, else null.
 const hostProblem = (host: string): string | null => {
   if (host === '') return 'Enter the PostHog host.';
-  let url: URL;
-  try {
-    url = new URL(host);
-  } catch {
-    return 'The PostHog host must be a full URL starting with https://.';
-  }
+  const url = URL.parse(host);
+  if (!url) return 'The PostHog host must be a full URL starting with https://.';
   if (url.protocol !== 'https:') return 'The PostHog host must start with https://.';
   if (url.hostname.toLowerCase().endsWith('.i.posthog.com')) {
     return 'This is the PostHog ingestion host (*.i.posthog.com). Use the app host, such as https://us.posthog.com.';
@@ -30,7 +26,7 @@ export const readSettings = (env: Env = process.env): SettingsResult => {
   const problems: SettingsProblem[] = [];
 
   const hostKey = clean(env.POSTHOG_HOST) === 'custom' ? 'POSTHOG_CUSTOM_HOST' : 'POSTHOG_HOST';
-  const host = clean(env[hostKey]);
+  const host = clean(env[hostKey]).replace(/\/+$/, '');
   const hostReason = hostProblem(host);
   if (hostReason) problems.push({ key: hostKey, reason: hostReason });
 
@@ -39,7 +35,7 @@ export const readSettings = (env: Env = process.env): SettingsResult => {
     problems.push({ key: 'POSTHOG_PROJECT_ID', reason: 'Enter the PostHog project ID.' });
   }
 
-  const apiKey = (env.POSTHOG_PERSONAL_API_KEY ?? '').trim();
+  const apiKey = clean(env.POSTHOG_PERSONAL_API_KEY);
   if (apiKey === '') {
     problems.push({
       key: 'POSTHOG_PERSONAL_API_KEY',

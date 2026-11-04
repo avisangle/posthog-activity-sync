@@ -17,17 +17,15 @@ export type RunQueryInput = { query: string; values?: Record<string, unknown>; n
 
 type ClientOptions = { fetch?: typeof fetch; timeoutMs?: number };
 
+type PostHogErrorExtra = { retryAfterSeconds?: number | null; budgetExceeded?: boolean };
+
 export class PostHogError extends Error {
   readonly kind: PostHogErrorKind;
   readonly detail: string;
   readonly retryAfterSeconds: number | null;
   readonly budgetExceeded: boolean;
 
-  constructor(
-    kind: PostHogErrorKind,
-    detail: string,
-    extra: { retryAfterSeconds?: number | null; budgetExceeded?: boolean } = {},
-  ) {
+  constructor(kind: PostHogErrorKind, detail: string, extra: PostHogErrorExtra = {}) {
     super(`PostHog ${kind}: ${detail}`);
     this.name = 'PostHogError';
     this.kind = kind;
@@ -68,34 +66,36 @@ const errorText = (error: unknown): string => {
 };
 
 const kindFor = (status: number, code: unknown, detail: string): PostHogErrorKind => {
-  if (status === 401) return 'unauthorized';
-  if (status === 403) {
-    if (code === 'permission_denied') {
-      if (detail.startsWith('API key missing required scope')) return 'missing_scope';
-      if (detail.includes('does not have access to the requested project')) {
-        return 'project_not_found';
-      }
-    }
-    return 'unauthorized';
+  const denied = status === 403 && code === 'permission_denied';
+  if (denied && detail.startsWith('API key missing required scope')) return 'missing_scope';
+  if (denied && detail.includes('does not have access to the requested project')) {
+    return 'project_not_found';
   }
+  if (status === 401 || status === 403) return 'unauthorized';
   if (status === 404) return 'project_not_found';
   if (status === 429) return 'rate_limited';
   if (status === 504) return 'timeout';
-  if (status >= 400 && status < 500) return 'bad_query';
+  if (status === 400) return 'bad_query';
   return 'server_error';
 };
 
 export const createPostHogClient = (settings: PostHogSettings, options: ClientOptions = {}) => {
   const { host, projectId, apiKey } = settings;
+  const doFetch = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const redact = (text: string) => (apiKey === '' ? text : text.split(apiKey).join('[redacted]'));
+
+  // Every error leaves through here, so no detail can carry the key.
+  const fail = (kind: PostHogErrorKind, detail: string, extra?: PostHogErrorExtra) => {
+    const redacted = apiKey === '' ? detail : detail.split(apiKey).join('[redacted]');
+    return new PostHogError(kind, redacted.slice(0, MAX_DETAIL_LENGTH), extra);
+  };
 
   const runQuery = async ({ query, values, name }: RunQueryInput): Promise<QueryResult> => {
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     let text: string;
     try {
-      response = await (options.fetch ?? fetch)(`${host}/api/projects/${projectId}/query/`, {
+      response = await doFetch(`${host}/api/projects/${projectId}/query/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -107,15 +107,15 @@ export const createPostHogClient = (settings: PostHogSettings, options: ClientOp
       });
       text = await response.text();
     } catch (error) {
-      if (signal.aborted) throw new PostHogError('timeout', `No response within ${timeoutMs} ms.`);
-      throw new PostHogError('unreachable', redact(errorText(error)));
+      if (signal.aborted) throw fail('timeout', `No response within ${timeoutMs} ms.`);
+      throw fail('unreachable', errorText(error));
     }
 
     const body = parseJson(text);
 
     if (response.ok) {
       if (!Array.isArray(body?.columns) || !Array.isArray(body?.results)) {
-        throw new PostHogError('server_error', 'Unexpected query response shape.');
+        throw fail('server_error', 'Unexpected query response shape.');
       }
       return {
         columns: body.columns,
@@ -124,15 +124,11 @@ export const createPostHogClient = (settings: PostHogSettings, options: ClientOp
       };
     }
 
-    const rawDetail = typeof body?.detail === 'string' ? body.detail : text;
-    throw new PostHogError(
-      kindFor(response.status, body?.code, rawDetail),
-      `HTTP ${response.status}: ${redact(rawDetail).slice(0, MAX_DETAIL_LENGTH)}`,
-      {
-        retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')),
-        budgetExceeded: body?.code === 'api_queries_budget_exceeded',
-      },
-    );
+    const detail = typeof body?.detail === 'string' ? body.detail : text;
+    throw fail(kindFor(response.status, body?.code, detail), `HTTP ${response.status}: ${detail}`, {
+      retryAfterSeconds: parseRetryAfter(response.headers.get('Retry-After')),
+      budgetExceeded: body?.code === 'api_queries_budget_exceeded',
+    });
   };
 
   return { runQuery };
