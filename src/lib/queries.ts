@@ -94,20 +94,15 @@ export const latestEventsQuery = ({
 
 export const healthProbeQuery = (): BuiltQuery => ({ query: HEALTH_PROBE_SQL, values: {} });
 
-// Reads each row by column name, so a reordered `columns` cannot shift values.
-const readRows = <Name extends string>(
-  rows: QueryRows,
-  names: readonly Name[],
-): Record<Name, unknown>[] => {
+// Returns each row's values in `names` order, looked up by column name so a reordered
+// `columns` cannot shift values.
+const readRows = (rows: QueryRows, names: readonly string[]): unknown[][] => {
   const indexes = names.map((name) => {
     const index = rows.columns.indexOf(name);
     if (index === -1) throw new Error(`PostHog result is missing the "${name}" column`);
     return index;
   });
-  return rows.results.map(
-    (row) =>
-      Object.fromEntries(names.map((name, i) => [name, row[indexes[i]]])) as Record<Name, unknown>,
-  );
+  return rows.results.map((row) => indexes.map((index) => row[index]));
 };
 
 const toUtcIso = (value: unknown) => new Date(String(value)).toISOString();
@@ -115,32 +110,36 @@ const toUtcIso = (value: unknown) => new Date(String(value)).toISOString();
 const toNullableString = (value: unknown) => (value === null || value === undefined ? null : String(value));
 
 export const parseActiveRows = (rows: QueryRows): ActiveRow[] =>
-  readRows(rows, ['email', 'last_seen', 'last_url', 'person_id'] as const).map((row) => ({
-    email: String(row.email),
-    lastSeenAt: toUtcIso(row.last_seen),
-    lastUrl: toNullableString(row.last_url),
-    personRef: String(row.person_id),
-  }));
+  readRows(rows, ['email', 'last_seen', 'last_url', 'person_id']).map(
+    ([email, lastSeen, lastUrl, personId]) => ({
+      email: String(email),
+      lastSeenAt: toUtcIso(lastSeen),
+      lastUrl: toNullableString(lastUrl),
+      personRef: String(personId),
+    }),
+  );
 
 // An email absent from the map is not in PostHog persons.
 export const parsePageviewCounts = (rows: QueryRows): Map<string, number> =>
   new Map(
-    readRows(rows, ['email', 'pageviews_30d'] as const).map((row) => [
-      String(row.email),
-      Number(row.pageviews_30d),
+    readRows(rows, ['email', 'pageviews_30d']).map(([email, count]) => [
+      String(email),
+      Number(count),
     ]),
   );
 
 export const parseLatestEvents = (rows: QueryRows): LatestEvent[] =>
-  readRows(rows, ['event', 'url', 'timestamp', 'person_id'] as const).map((row) => ({
-    event: String(row.event),
-    url: toNullableString(row.url),
-    timestamp: toUtcIso(row.timestamp),
-    personRef: String(row.person_id),
-  }));
+  readRows(rows, ['event', 'url', 'timestamp', 'person_id']).map(
+    ([event, url, timestamp, personId]) => ({
+      event: String(event),
+      url: toNullableString(url),
+      timestamp: toUtcIso(timestamp),
+      personRef: String(personId),
+    }),
+  );
 
 export const parseHealthProbe = (rows: QueryRows): number =>
-  Number(readRows(rows, ['persons_with_email'] as const)[0]?.persons_with_email ?? 0);
+  Number(readRows(rows, ['persons_with_email'])[0]?.[0] ?? 0);
 
 // `host` is readSettings().host, already resolved for POSTHOG_HOST=custom.
 export const profileUrl = (host: string, projectId: string, personRef: string): string =>
