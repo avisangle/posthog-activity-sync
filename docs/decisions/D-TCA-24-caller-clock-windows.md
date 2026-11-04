@@ -1,5 +1,5 @@
 # D-TCA-24: Events-query windows come from the caller's clock
-**Status:** Accepted; supersedes the TCA-24 Impact line of D-TCA-22-posthog-api-shapes
+**Status:** Accepted; partly supersedes D-TCA-22-posthog-api-shapes (its TCA-24 Impact line)
 **Date:** 2026-11-04
 **Issue:** TCA-24
 **Confluence:** none
@@ -9,8 +9,8 @@
 (`now - 30 days` and `now - days`), and `latestEventsQuery` binds `LIMIT {limit}`. activeSince and
 healthProbe keep D-TCA-22's texts verbatim. Every bound `limit` must be an integer from 1 to
 50,000, else the builder throws `RangeError`. This supersedes D-TCA-22's TCA-24 Impact line
-("use the four query texts below verbatim") for the pageviewCounts and latestEvents texts; the
-rest of D-TCA-22 stands.
+("use the four query texts below verbatim") for the pageviewCounts and latestEvents texts, and its profile
+URL host wording (see Impact); the rest of D-TCA-22 stands.
 
 **Why:** PostHog's `now()` is invisible to a unit test, so a test cannot check that each events
 query is bounded by the intended window (the bytes fence). It is also a second clock: the sync

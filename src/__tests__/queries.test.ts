@@ -401,7 +401,7 @@ describe('decision records', () => {
 
     const d22 = read('D-TCA-22-posthog-api-shapes.md');
     expect(d22).toMatch(
-      /^\*\*Status:\*\* Accepted; TCA-24 Impact line superseded by D-TCA-24-caller-clock-windows$/m,
+      /^\*\*Status:\*\* Accepted; partly superseded by D-TCA-24-caller-clock-windows \(.+\)$/m,
     );
     const tca24Impact = d22.match(/^- \*\*TCA-24 \(queries\):\*\*[\s\S]*?(?=^- \*\*TCA-26)/m)?.[0];
     expect(tca24Impact).toContain('D-TCA-24');
