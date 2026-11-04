@@ -1,10 +1,15 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
 import { createPostHogClient, PostHogError, type PostHogErrorKind } from 'src/lib/posthog-client';
-import { latestEventsQuery, parseLatestEvents, profileUrl } from 'src/lib/queries';
+import {
+  latestEventsQuery,
+  parseLatestEvents,
+  profileUrl,
+  type LatestEvent,
+} from 'src/lib/queries';
 import { readSettings } from 'src/lib/settings';
 
-export type ActivityEvent = { event: string; url: string | null; timestamp: string };
+export type ActivityEvent = Omit<LatestEvent, 'personRef'>;
 
 type ActivityProblem =
   | 'not_configured'
@@ -83,7 +88,6 @@ export const getActivity = async (
     const email = (await deps.readPrimaryEmail(personId))?.trim();
     if (!email) return problem('no_email', 'No email on this person');
 
-    const { host, projectId } = config.settings;
     const client = deps.createClient(config.settings, { timeoutMs: CLIENT_TIMEOUT_MS });
     const events = parseLatestEvents(
       await client.runQuery({ ...latestEventsQuery({ email, now: deps.now() }), name: 'activity-route' }),
@@ -93,7 +97,7 @@ export const getActivity = async (
     return {
       status: 'ok',
       events: events.map(({ event, url, timestamp }) => ({ event, url, timestamp })),
-      profileUrl: profileUrl(host, projectId, events[0].personRef),
+      profileUrl: profileUrl(config.settings.host, config.settings.projectId, events[0].personRef),
     };
   } catch (error) {
     return error instanceof PostHogError ? { ...ERROR_RESPONSES[error.kind] } : problem('error', GENERIC);
