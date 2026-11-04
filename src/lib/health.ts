@@ -115,7 +115,7 @@ const ERROR_BANNERS: Record<PostHogErrorKind, (settings: PostHogSettings, error:
 };
 
 const defaultDeps: HealthDeps = {
-  readSettings: () => readSettings(),
+  readSettings,
   createClient: (settings) => createPostHogClient(settings, { timeoutMs: PROBE_TIMEOUT_MS }),
 };
 
