@@ -35,7 +35,8 @@ const PAGEVIEW_WINDOW_DAYS = 30;
 // PostHog clamps a larger LIMIT to 50,000 without signalling truncation (D-TCA-22).
 const MAX_LIMIT = 50_000;
 
-const normalizeEmail = (email: string) => email.trim().toLowerCase();
+// Shared so callers key parser output the same way the builders bind.
+export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 const iso = (date: Date) => date.toISOString();
 
@@ -112,7 +113,7 @@ const nullableString = (value: unknown) => (value == null ? null : String(value)
 const isoTimestamp = (value: unknown) => new Date(String(value)).toISOString();
 
 export const parseActiveRows = ({ columns, results }: QueryRows): ActiveRow[] => {
-  const col = columnIndex(columns, ['email', 'last_seen', 'last_url', 'person_id'] as const);
+  const col = columnIndex(columns, ['email', 'last_seen', 'last_url', 'person_id']);
   return results.map((row) => ({
     email: String(row[col.email]),
     lastSeenAt: isoTimestamp(row[col.last_seen]),
@@ -122,12 +123,12 @@ export const parseActiveRows = ({ columns, results }: QueryRows): ActiveRow[] =>
 };
 
 export const parsePageviewCounts = ({ columns, results }: QueryRows): Map<string, number> => {
-  const col = columnIndex(columns, ['email', 'pageviews_30d'] as const);
+  const col = columnIndex(columns, ['email', 'pageviews_30d']);
   return new Map(results.map((row) => [String(row[col.email]), Number(row[col.pageviews_30d])]));
 };
 
 export const parseLatestEvents = ({ columns, results }: QueryRows): LatestEvent[] => {
-  const col = columnIndex(columns, ['event', 'url', 'timestamp', 'person_id'] as const);
+  const col = columnIndex(columns, ['event', 'url', 'timestamp', 'person_id']);
   return results.map((row) => ({
     event: String(row[col.event]),
     url: nullableString(row[col.url]),
@@ -137,7 +138,7 @@ export const parseLatestEvents = ({ columns, results }: QueryRows): LatestEvent[
 };
 
 export const parseHealthProbe = ({ columns, results }: QueryRows): number => {
-  const col = columnIndex(columns, ['persons_with_email'] as const);
+  const col = columnIndex(columns, ['persons_with_email']);
   return Number(results[0]?.[col.persons_with_email] ?? 0);
 };
 
