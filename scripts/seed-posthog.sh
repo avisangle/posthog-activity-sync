@@ -22,11 +22,13 @@ fi
 : "${POSTHOG_HOST:?POSTHOG_HOST missing from .env}"
 : "${POSTHOG_PROJECT_API_KEY:?POSTHOG_PROJECT_API_KEY missing from .env}"
 
-# Capture goes to the ingestion host, not the app host.
+# Capture goes to the ingestion host, not the app host. Same values as the app's POSTHOG_HOST.
 case "${POSTHOG_HOST%/}" in
-  https://us.posthog.com|https://app.posthog.com) CAPTURE_HOST=https://us.i.posthog.com ;;
+  https://us.posthog.com) CAPTURE_HOST=https://us.i.posthog.com ;;
   https://eu.posthog.com) CAPTURE_HOST=https://eu.i.posthog.com ;;
-  *) CAPTURE_HOST=${POSTHOG_HOST%/} ;;   # self-hosted: app and capture share a host
+  custom) CAPTURE_HOST=${POSTHOG_CUSTOM_HOST:?POSTHOG_CUSTOM_HOST missing from .env}
+          CAPTURE_HOST=${CAPTURE_HOST%/} ;;   # self-hosted: app and capture share a host
+  *) echo "unsupported POSTHOG_HOST: $POSTHOG_HOST" >&2; exit 1 ;;
 esac
 
 if command -v sha256sum >/dev/null; then sha() { sha256sum | cut -c1-32; }
@@ -39,31 +41,30 @@ uuid() {
     $(( (16#${h:16:1} & 3) | 8 )) "${h:17:3}" "${h:20:12}"
 }
 
-NOW=$(date -u +%s)
-ANCHOR=${SEED_ANCHOR:-$(( NOW - NOW % 86400 ))}
-SITE=https://demo.posthog-activity.example
 DAY=86400
 HOUR=3600
+NOW=$(date -u +%s)
+ANCHOR=${SEED_ANCHOR:-$(( NOW - NOW % DAY ))}
+SITE=https://demo.posthog-activity.example
 
-events='[]'
+events=''   # one JSON object per line, slurped into the batch once
 i=0
 # add <distinct_id> <event> <seconds before anchor> <path or ""> [extra properties JSON]
 add() {
-  local id=$1 event=$2 ago=$3 path=$4 extra=${5:-'{}'} n=$(( ${#seq[@]} ))
-  seq+=(x)
-  events=$(jq -c --arg id "$id" --arg event "$event" --argjson ts $(( ANCHOR - ago )) \
+  local id=$1 event=$2 ago=$3 path=$4 extra=${5:-'{}'}
+  events+=$(jq -nc --arg id "$id" --arg event "$event" --argjson ts $(( ANCHOR - ago )) \
     --arg url "${path:+$SITE$path}" --argjson extra "$extra" \
     --arg uuid "$(uuid "seed|$ANCHOR|$email|$n")" \
-    '. + [{ uuid: $uuid, event: $event, distinct_id: $id, timestamp: ($ts | todate),
-            properties: ((if $url == "" then {} else { "$current_url": $url } end) + $extra) }]' \
-    <<<"$events")
+    '{ uuid: $uuid, event: $event, distinct_id: $id, timestamp: ($ts | todate),
+       properties: ((if $url == "" then {} else { "$current_url": $url } end) + $extra) }')$'\n'
+  n=$(( n + 1 ))
 }
 
-while IFS= read -r line || [[ -n "$line" ]]; do
-  email=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+while IFS=$' \t\r' read -r email || [[ -n "$email" ]]; do
   [[ -z "$email" || "$email" == \#* ]] && continue
-  seq=()
-  anon="seed-anon-$(printf '%s' "$email" | sha | cut -c1-12)"
+  n=0   # event index within this person; part of each uuid seed
+  h=$(printf '%s' "$email" | sha)
+  anon="seed-anon-${h:0:12}"
   signup=$(( (21 + i) * DAY - 9 * HOUR ))   # 21+i days before anchor, 09:00 UTC
 
   # Anonymous visit, then identify and signup, all inside the trailing 30 days.
@@ -77,25 +78,27 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   add "$email" '$pageview' $(( 33 * DAY )) /docs/getting-started
   add "$email" '$pageview' $(( (10 + i) * DAY )) /docs/api
   add "$email" '$pageview' $(( (3 + i) * DAY )) /pricing
-  add "$email" '$pageview' $(( (2 * i + 1) * HOUR )) /app/dashboard
+  recent=$(( (2 * i + 1) * HOUR ))
+  add "$email" '$pageview' $recent /app/dashboard
   # A later custom event, so last seen differs from the latest pageview.
-  add "$email" report_exported $(( (2 * i + 1) * HOUR - 600 )) ""
+  add "$email" report_exported $(( recent - 600 )) ""
   i=$(( i + 1 ))
 done <"$PEOPLE_FILE"
 
 [[ $i -gt 0 ]] || { echo "no emails in $PEOPLE_FILE" >&2; exit 1; }
+batch=$(jq -sc . <<<"$events")
 
 if $DRY_RUN; then
-  jq '{ batch: . }' <<<"$events"
+  jq '{ batch: . }' <<<"$batch"
   exit 0
 fi
 
 # Body goes through stdin so the key never appears in the process list.
-status=$(jq -c --arg key "$POSTHOG_PROJECT_API_KEY" '{ api_key: $key, batch: . }' <<<"$events" \
+status=$(jq -c --arg key "$POSTHOG_PROJECT_API_KEY" '{ api_key: $key, batch: . }' <<<"$batch" \
   | curl -sS -o /dev/null -w '%{http_code}' -X POST "$CAPTURE_HOST/batch/" \
       -H 'Content-Type: application/json' --data-binary @-)
 if [[ "$status" != 200 ]]; then
   echo "capture failed: HTTP $status" >&2
   exit 1
 fi
-echo "sent $(jq length <<<"$events") events for $i people to $CAPTURE_HOST (anchor $(jq -nr --argjson a "$ANCHOR" '$a | todate'))"
+echo "sent $(jq length <<<"$batch") events for $i people to $CAPTURE_HOST (anchor $(jq -nr --argjson a "$ANCHOR" '$a | todate'))"
