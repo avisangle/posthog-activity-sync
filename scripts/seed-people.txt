@@ -1,0 +1,11 @@
+# One email per line; blank lines and lines starting with # are skipped.
+# Primary emails of people in the demo workspace (lead-scoring.twenty.com).
+zhao@notion.com
+amodei@anthropic.com
+field@figma.com
+collison@stripe.com
+# Mixed-case variant of a demo person's email (chesky@airbnb.com): tests lower() matching.
+Chesky@Airbnb.com
+# Contains `_`, the ilike single-character wildcard; unescaped it would match zhao@notion.com.
+# No demo person has this email, so it is also the "in PostHog, not in Twenty" case.
+zha_@notion.com
