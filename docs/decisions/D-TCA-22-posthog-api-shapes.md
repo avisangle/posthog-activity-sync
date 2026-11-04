@@ -1,5 +1,5 @@
 # D-TCA-22: Confirmed PostHog query shapes, error matrix and Twenty write method
-**Status:** Accepted
+**Status:** Accepted; TCA-24 Impact line superseded by D-TCA-24-caller-clock-windows
 **Date:** 2026-11-04
 **Issue:** TCA-22
 **Confluence:** none
@@ -62,6 +62,8 @@ creates a blank Person for an unknown id and restores a soft-deleted Person (det
   `` `${appHost}/project/${projectId}/persons/${encodeURIComponent(person_id)}` `` where
   `appHost` is the configured `POSTHOG_HOST` (the app host, not the `.i.` ingestion host) and
   `person_id` is the column of that name from activeSince or latestEvents.
+  Superseded for the pageviewCounts and latestEvents texts by D-TCA-24-caller-clock-windows,
+  which binds their window from the caller's `now` and latestEvents' `LIMIT {limit}`.
 - **TCA-26 (health check):** only the healthProbe query; no `GET /api/projects/{id}/`. A wrong
   region surfaces as `unauthorized` (the key is unknown in the other region), so its message must
   mention the host setting.
