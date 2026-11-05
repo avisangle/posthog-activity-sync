@@ -102,6 +102,12 @@ const describeError = (error: unknown) =>
       }
     : { error: error instanceof Error ? error.message : String(error) };
 
+// $current_url is set by the tracked browser, so a javascript: or data: URL must not become a link.
+const isWebUrl = (url: string) => {
+  const protocol = URL.parse(url)?.protocol;
+  return protocol === 'http:' || protocol === 'https:';
+};
+
 const nextValues = (
   row: ActiveRow,
   pageviews: number,
@@ -109,7 +115,7 @@ const nextValues = (
 ): Partial<ActivityValues> => ({
   posthogLastSeenAt: row.lastSeenAt,
   // A window holding only custom events must not blank the last page.
-  ...(row.lastUrl !== null && { posthogLastPage: row.lastUrl }),
+  ...(row.lastUrl !== null && isWebUrl(row.lastUrl) && { posthogLastPage: row.lastUrl }),
   posthogPageviews30d: pageviews,
   posthogProfile: profileUrl(settings.host, settings.projectId, row.personRef),
 });
@@ -179,8 +185,13 @@ const syncWindow = async (deps: SyncDeps, now: Date): Promise<SyncStatus> => {
   }
 
   // At the cap, resume from the last row read; `>=` re-reads its ties, harmless with diff-only writes.
-  const cursor = rows.length === ROW_LIMIT ? rows[rows.length - 1].lastSeenAt : until.toISOString();
-  await deps.kv.set(SYNC_CURSOR_KEY, cursor);
+  let cursor = rows.length === ROW_LIMIT ? new Date(rows[rows.length - 1].lastSeenAt) : until;
+  // A full page tied at `since` would be re-read every run; step past it rather than stall.
+  if (cursor <= since) {
+    cursor = new Date(since.getTime() + 1);
+    deps.log('posthog-sync: a full page shares one timestamp; skipping past', since.toISOString());
+  }
+  await deps.kv.set(SYNC_CURSOR_KEY, cursor.toISOString());
 
   deps.log('posthog-sync: done', {
     window: { since: since.toISOString(), until: until.toISOString() },
