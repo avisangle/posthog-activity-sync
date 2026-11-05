@@ -1,4 +1,7 @@
-import { kv } from 'twenty-sdk/logic-function';
+import { enqueueJobs, kv } from 'twenty-sdk/logic-function';
+
+import { PostHogError } from 'src/lib/posthog-client';
+import { TwentyRateLimitError } from 'src/lib/twenty-errors';
 
 // Scheduling: D-TCA-27-job-scheduling. Lease: D-TCA-27-shared-write-lease.
 
@@ -26,6 +29,19 @@ export const hourBucketJobId = (prefix: string, now: Date): string =>
 export const dayBucketJobId = (prefix: string, now: Date): string =>
   `${prefix}:${now.toISOString().slice(0, 10)}`;
 
+// A cron's whole job: one bucketed enqueue, delayed by the workspace offset, never retried.
+export const enqueueBucketedJob = (
+  logicFunctionUniversalIdentifier: string,
+  jobId: string,
+  workspaceId: string,
+) =>
+  enqueueJobs({
+    logicFunctionUniversalIdentifier,
+    jobs: [{ jobId }],
+    delayMs: stableOffsetMs(workspaceId, JOB_OFFSET_WINDOW_MS),
+    retryLimit: 0,
+  });
+
 type Lease = { expiresAt: string };
 
 // Check-then-set: KV has no compare-and-set.
@@ -39,4 +55,15 @@ export const acquireLease = async (key: string, now: Date, ttlSeconds: number): 
 
 export const releaseLease = async (key: string): Promise<void> => {
   await kv.delete(key);
+};
+
+// The statuses a failed job run reports. Every job stops on the first error and keeps its state.
+export type JobFailureStatus = 'rate_limited' | 'timeout' | 'error';
+
+export const jobFailureStatus = (error: unknown): JobFailureStatus => {
+  if (error instanceof TwentyRateLimitError) return 'rate_limited';
+  if (error instanceof PostHogError && (error.kind === 'rate_limited' || error.kind === 'timeout')) {
+    return error.kind;
+  }
+  return 'error';
 };

@@ -327,6 +327,31 @@ describe('runRecount: lease and settings', () => {
     expect(storedLease()).toEqual(held);
   });
 
+  it('a locked run still writes its summary log line', async () => {
+    const { runRecount } = await loadRecount();
+    kvMock.store.set(ACTIVITY_WRITE_LEASE, JSON.stringify({ expiresAt: new Date(NOW.getTime() + 60_000).toISOString() }));
+    const { deps } = makeDeps([], {});
+
+    await runRecount(deps);
+
+    expect(deps.log).toHaveBeenCalledTimes(1);
+    expect(deps.log.mock.calls[0][0]).toMatch(/^posthog-recount: locked/);
+  });
+
+  it('a failed lease release keeps the run status ok and is logged (same rule as the sync)', async () => {
+    const { runRecount } = await loadRecount();
+    kvMock.delete.mockRejectedValueOnce(new Error('kv unavailable'));
+    const { deps } = makeDeps([person('ada@example.com', 5)], { 'ada@example.com': 7 });
+
+    await expect(runRecount(deps)).resolves.toMatchObject({ status: 'ok', written: 1 });
+
+    const lines = deps.log.mock.calls.map(([line]) => line);
+    expect(lines).toEqual([
+      expect.stringMatching(/could not release the write lease \(kv unavailable\)/),
+      expect.stringMatching(/^posthog-recount: ok:/),
+    ]);
+  });
+
   it('not configured returns not_configured with no Twenty or PostHog call, and releases the lease', async () => {
     const { runRecount } = await loadRecount();
     const { deps, runQuery } = makeDeps([person('ada@example.com')], { 'ada@example.com': 1 }, {
