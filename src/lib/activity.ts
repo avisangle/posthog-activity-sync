@@ -1,5 +1,11 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import {
+  GENERIC_MESSAGE as GENERIC,
+  NO_ACTIVITY_MESSAGE,
+  ROUTE_POSTHOG_TIMEOUT_MS,
+  TIMEOUT_MESSAGE,
+} from 'src/lib/activity-messages';
 import { createPostHogClient, PostHogError, type PostHogErrorKind } from 'src/lib/posthog-client';
 import {
   latestEventsQuery,
@@ -11,7 +17,7 @@ import { readSettings } from 'src/lib/settings';
 
 export type ActivityEvent = Omit<LatestEvent, 'personRef'>;
 
-type ActivityProblem =
+export type ActivityProblem =
   | 'not_configured'
   | 'no_email'
   | 'no_activity'
@@ -31,20 +37,16 @@ type ActivityDeps = {
   now: () => Date;
 };
 
-// Below the widget's 8 s abort, so a timeout status can still reach it.
-const CLIENT_TIMEOUT_MS = 7_000;
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CONNECTION_FAILED = "PostHog connection failed; an admin should check Settings > Apps";
-const GENERIC = 'Could not load PostHog activity';
 
 const problem = (status: ActivityProblem, message: string): ActivityResponse => ({ status, message });
 
 // A Record, so adding or removing a kind in posthog-client.ts fails typecheck.
 const ERROR_RESPONSES: Record<PostHogErrorKind, ActivityResponse> = {
   rate_limited: problem('rate_limited', 'PostHog is busy, try again in a minute'),
-  timeout: problem('timeout', 'PostHog took too long, try again'),
+  timeout: problem('timeout', TIMEOUT_MESSAGE),
   unauthorized: problem('error', CONNECTION_FAILED),
   missing_scope: problem('error', CONNECTION_FAILED),
   project_not_found: problem('error', CONNECTION_FAILED),
@@ -88,11 +90,11 @@ export const getActivity = async (
     const email = (await deps.readPrimaryEmail(personId))?.trim();
     if (!email) return problem('no_email', 'No email on this person');
 
-    const client = deps.createClient(config.settings, { timeoutMs: CLIENT_TIMEOUT_MS });
+    const client = deps.createClient(config.settings, { timeoutMs: ROUTE_POSTHOG_TIMEOUT_MS });
     const events = parseLatestEvents(
       await client.runQuery({ ...latestEventsQuery({ email, now: deps.now() }), name: 'activity-route' }),
     );
-    if (events.length === 0) return problem('no_activity', 'No PostHog activity for this email');
+    if (events.length === 0) return problem('no_activity', NO_ACTIVITY_MESSAGE);
 
     return {
       status: 'ok',
