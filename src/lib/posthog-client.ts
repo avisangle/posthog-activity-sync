@@ -59,7 +59,7 @@ const parseJson = (text: string): any => {
 };
 
 // Node's fetch puts the network reason (e.g. ENOTFOUND) in `cause`.
-const errorText = (error: unknown): string => {
+export const errorText = (error: unknown): string => {
   if (!(error instanceof Error)) return String(error);
   const { cause } = error as { cause?: unknown };
   return cause instanceof Error ? `${error.message}: ${cause.message}` : error.message;
