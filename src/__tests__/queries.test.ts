@@ -17,33 +17,14 @@
 //  latestEventsQuery({ email, now, limit = 20, days = 90 }), healthProbeQuery()
 //    -> { query: string; values: Record<string, unknown> }
 //  parseActiveRows, parsePageviewCounts, parseLatestEvents, parseHealthProbe, profileUrl.
-//
-// The module is loaded at runtime by absolute path so this file compiles before it exists.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-type BuiltQuery = { query: string; values: Record<string, unknown> };
-type QueryRows = { columns: string[]; results: unknown[][] };
-type ActiveRow = { email: string; lastSeenAt: string; lastUrl: string | null; personRef: string };
-type LatestEvent = { event: string; url: string | null; timestamp: string; personRef: string };
-type QueriesModule = {
-  activeSinceQuery: (input: { since: Date; until: Date; limit: number }) => BuiltQuery;
-  pageviewCountsQuery: (input: { emails: string[]; now: Date }) => BuiltQuery;
-  latestEventsQuery: (input: {
-    email: string;
-    now: Date;
-    limit?: number;
-    days?: number;
-  }) => BuiltQuery;
-  healthProbeQuery: () => BuiltQuery;
-  parseActiveRows: (rows: QueryRows) => ActiveRow[];
-  parsePageviewCounts: (rows: QueryRows) => Map<string, number>;
-  parseLatestEvents: (rows: QueryRows) => LatestEvent[];
-  parseHealthProbe: (rows: QueryRows) => number;
-  profileUrl: (host: string, projectId: string, personRef: string) => string;
-};
+import type { BuiltQuery } from 'src/lib/queries';
+
+type QueriesModule = typeof import('src/lib/queries');
 
 const loadQueries = async (): Promise<QueriesModule> =>
   import(/* @vite-ignore */ resolve(process.cwd(), 'src/lib/queries.ts'));
@@ -372,6 +353,38 @@ describe('row parsers read by column name', () => {
     ).toThrow(/person_id/);
     expect(() => q.parseHealthProbe({ columns: ['count'], results: [[6]] })).toThrow(
       /persons_with_email/,
+    );
+  });
+
+  // Same failure as posthog-client's bad-shape check (D-TCA-20-unusable-response).
+  it.each([
+    ['a missing column', (q: QueriesModule) => q.parseHealthProbe({ columns: ['count'], results: [[6]] })],
+    [
+      'an unreadable timestamp',
+      (q: QueriesModule) =>
+        q.parseLatestEvents({
+          columns: ['event', 'url', 'timestamp', 'person_id'],
+          results: [['$pageview', null, 'not-a-date', 'p']],
+        }),
+    ],
+    [
+      'a null last_seen',
+      (q: QueriesModule) =>
+        q.parseActiveRows({
+          columns: ['email', 'last_seen', 'last_url', 'person_id'],
+          results: [['a@x.com', null, null, 'p']],
+        }),
+    ],
+    [
+      'a non-numeric count',
+      (q: QueriesModule) =>
+        q.parsePageviewCounts({ columns: ['email', 'pageviews_30d'], results: [['a@x.com', 'many']] }),
+    ],
+  ])('rejects %s as PostHogError server_error', async (_case, parse) => {
+    const q = await loadQueries();
+
+    expect(() => parse(q)).toThrow(
+      expect.objectContaining({ name: 'PostHogError', kind: 'server_error' }),
     );
   });
 });

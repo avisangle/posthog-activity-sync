@@ -10,20 +10,13 @@
 //  readSettings(env = process.env)
 //    -> { ok: true; settings: { host; projectId; apiKey } }
 //     | { ok: false; problems: { key: string; reason: string }[] }
-//
-// The module is loaded at runtime by absolute path so this file compiles before it exists.
 import { resolve } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-type PostHogSettings = { host: string; projectId: string; apiKey: string };
-type SettingsProblem = { key: string; reason: string };
-type SettingsResult =
-  | { ok: true; settings: PostHogSettings }
-  | { ok: false; problems: SettingsProblem[] };
-type SettingsModule = {
-  readSettings: (env?: Record<string, string | undefined>) => SettingsResult;
-};
+import type { SettingsResult } from 'src/lib/settings';
+
+type SettingsModule = typeof import('src/lib/settings');
 
 const loadSettings = async (): Promise<SettingsModule> =>
   import(/* @vite-ignore */ resolve(process.cwd(), 'src/lib/settings.ts'));

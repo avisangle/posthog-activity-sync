@@ -1,4 +1,4 @@
-import type { QueryResult } from 'src/lib/posthog-client';
+import { PostHogError, type QueryResult } from 'src/lib/posthog-client';
 
 // Query texts: docs/decisions/D-TCA-22-posthog-api-shapes.md (activeSince, healthProbe verbatim);
 // pageviewCounts and latestEvents bind the caller's window, D-TCA-24-caller-clock-windows.
@@ -94,18 +94,31 @@ export const latestEventsQuery = ({
 
 export const healthProbeQuery = (): BuiltQuery => ({ query: HEALTH_PROBE_SQL, values: {} });
 
+// An unusable 200 fails like posthog-client's bad-shape check (D-TCA-20-unusable-response).
+const unusable = (detail: string) => new PostHogError('server_error', detail);
+
 // Returns each row's values in `names` order, looked up by column name so a reordered
 // `columns` cannot shift values.
 const readRows = (rows: QueryRows, names: readonly string[]): unknown[][] => {
   const indexes = names.map((name) => {
     const index = rows.columns.indexOf(name);
-    if (index === -1) throw new Error(`PostHog result is missing the "${name}" column`);
+    if (index === -1) throw unusable(`PostHog result is missing the "${name}" column`);
     return index;
   });
   return rows.results.map((row) => indexes.map((index) => row[index]));
 };
 
-const toUtcIso = (value: unknown) => new Date(String(value)).toISOString();
+const toUtcIso = (value: unknown) => {
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) throw unusable('PostHog returned an unreadable timestamp');
+  return date.toISOString();
+};
+
+const toCount = (value: unknown) => {
+  const count = Number(value);
+  if (!Number.isFinite(count)) throw unusable('PostHog returned a non-numeric count');
+  return count;
+};
 
 const toNullableString = (value: unknown) => (value === null || value === undefined ? null : String(value));
 
@@ -124,7 +137,7 @@ export const parsePageviewCounts = (rows: QueryRows): Map<string, number> =>
   new Map(
     readRows(rows, ['email', 'pageviews_30d']).map(([email, count]) => [
       String(email),
-      Number(count),
+      toCount(count),
     ]),
   );
 
@@ -139,7 +152,7 @@ export const parseLatestEvents = (rows: QueryRows): LatestEvent[] =>
   );
 
 export const parseHealthProbe = (rows: QueryRows): number =>
-  Number(readRows(rows, ['persons_with_email'])[0]?.[0] ?? 0);
+  toCount(readRows(rows, ['persons_with_email'])[0]?.[0] ?? 0);
 
 // `host` is readSettings().host, already resolved for POSTHOG_HOST=custom.
 export const profileUrl = (host: string, projectId: string, personRef: string): string =>

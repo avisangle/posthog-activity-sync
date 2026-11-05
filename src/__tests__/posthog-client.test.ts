@@ -20,35 +20,17 @@
 //    -> Promise<{ columns: string[]; results: unknown[][]; bytesRead: number | null }>
 //  rejects with PostHogError (extends Error): { kind, detail, retryAfterSeconds: number | null, budgetExceeded: boolean }
 //  The client's own abort timeout also rejects with kind 'timeout'.
-//
-// Modules are loaded at runtime by absolute path so this file compiles before they exist.
 import { resolve } from 'node:path';
 import { inspect } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-type PostHogSettings = { host: string; projectId: string; apiKey: string };
-type QueryResult = { columns: string[]; results: unknown[][]; bytesRead: number | null };
-type RunQueryInput = { query: string; values?: Record<string, unknown>; name: string };
+import type { PostHogError, RunQueryInput } from 'src/lib/posthog-client';
+import type { PostHogSettings } from 'src/lib/settings';
+
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type PostHogErrorLike = Error & {
-  kind: string;
-  detail?: unknown;
-  retryAfterSeconds: number | null;
-  budgetExceeded: boolean;
-};
-type ClientModule = {
-  createPostHogClient: (
-    settings: PostHogSettings,
-    options?: { fetch?: FetchLike; timeoutMs?: number },
-  ) => { runQuery: (input: RunQueryInput) => Promise<QueryResult> };
-  PostHogError: new (...args: never[]) => PostHogErrorLike;
-};
-type SettingsModule = {
-  readSettings: (
-    env?: Record<string, string | undefined>,
-  ) => { ok: true; settings: PostHogSettings } | { ok: false; problems: unknown[] };
-};
+type ClientModule = typeof import('src/lib/posthog-client');
+type SettingsModule = typeof import('src/lib/settings');
 
 const loadClient = async (): Promise<ClientModule> =>
   import(/* @vite-ignore */ resolve(process.cwd(), 'src/lib/posthog-client.ts'));
@@ -115,11 +97,11 @@ const hangingFetch = (rejection?: (signal: AbortSignal) => unknown) =>
       }),
   );
 
-const rejectionOf = async (promise: Promise<unknown>): Promise<PostHogErrorLike> => {
+const rejectionOf = async (promise: Promise<unknown>): Promise<PostHogError> => {
   try {
     await promise;
   } catch (error) {
-    return error as PostHogErrorLike;
+    return error as PostHogError;
   }
   throw new Error('expected runQuery to reject');
 };

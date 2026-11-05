@@ -336,10 +336,6 @@ describe('checkHealth: row 12, unexpected failure', () => {
     ],
     ['runQuery rejects with a plain Error', () => fakeDeps(() => Promise.reject(new Error(MESSAGE))).deps],
     ['runQuery rejects with a non-Error', () => fakeDeps(() => Promise.reject(MESSAGE)).deps],
-    [
-      'parseHealthProbe throws on a result without persons_with_email',
-      () => fakeDeps(() => Promise.resolve({ columns: ['other'], results: [[MESSAGE]], bytesRead: null })).deps,
-    ],
   ];
 
   it.each(CASES)('%s -> ERROR "The health check failed" without echoing the message', async (_name, build) => {
@@ -351,6 +347,20 @@ describe('checkHealth: row 12, unexpected failure', () => {
     const json = JSON.stringify(result);
     expect(json).not.toContain('boom-unexpected');
     expect(json).not.toContain(SECRET);
+  });
+});
+
+describe('checkHealth: a 200 without persons_with_email', () => {
+  it('shows the server_error banner, like any unusable PostHog response (D-TCA-20-unusable-response)', async () => {
+    const { checkHealth } = await loadHealth();
+    const { deps } = fakeDeps(() =>
+      Promise.resolve({ columns: ['other'], results: [[SECRET]], bytesRead: null }),
+    );
+
+    const result = await checkHealth(deps);
+
+    expectBanner(result, 'ERROR', 'PostHog returned an error');
+    expect(JSON.stringify(result)).not.toContain(SECRET);
   });
 });
 
