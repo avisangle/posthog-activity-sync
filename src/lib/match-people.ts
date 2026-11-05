@@ -85,6 +85,13 @@ const readPeople = async (client: CoreApiClient, filter: unknown): Promise<Perso
   return snapshots;
 };
 
+// Appends a snapshot to its email's group; callers skip a null email first.
+export const addByEmail = (groups: Map<string, PersonSnapshot[]>, snapshot: PersonSnapshot): void => {
+  const group = groups.get(snapshot.email as string);
+  if (group) group.push(snapshot);
+  else groups.set(snapshot.email as string, [snapshot]);
+};
+
 // `primaryEmail.in` is case-sensitive, so match with escaped ilike, then keep exact matches only.
 export const findPeopleByEmails = async (
   emails: string[],
@@ -99,10 +106,7 @@ export const findPeopleByEmails = async (
     const batch = wanted.slice(i, i + EMAIL_BATCH);
     const filter = { or: batch.map((e) => ({ emails: { primaryEmail: { ilike: escapeLike(e) } } })) };
     for (const snapshot of await readPeople(client, filter)) {
-      if (snapshot.email === null || !wantedSet.has(snapshot.email)) continue;
-      const entry = matches.get(snapshot.email);
-      if (entry) entry.push(snapshot);
-      else matches.set(snapshot.email, [snapshot]);
+      if (snapshot.email !== null && wantedSet.has(snapshot.email)) addByEmail(matches, snapshot);
     }
   }
   return matches;
