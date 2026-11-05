@@ -1,13 +1,14 @@
-import { enqueueJobs, kv } from 'twenty-sdk/logic-function';
+import { kv } from 'twenty-sdk/logic-function';
 
 import { SYNC_JOB_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 import {
   ACTIVITY_WRITE_LEASE,
-  JOB_OFFSET_WINDOW_MS,
   acquireLease,
+  enqueueBucketedJob,
   hourBucketJobId,
+  jobFailureStatus,
   releaseLease,
-  stableOffsetMs,
+  type JobFailureStatus,
 } from 'src/lib/jobs';
 import { findPeopleByEmails, type ActivityValues } from 'src/lib/match-people';
 import {
@@ -19,6 +20,7 @@ import {
 } from 'src/lib/posthog-client';
 import {
   activeSinceQuery,
+  DAY_MS,
   pageviewCountsQuery,
   parseActiveRows,
   parsePageviewCounts,
@@ -26,20 +28,13 @@ import {
   type ActiveRow,
 } from 'src/lib/queries';
 import { readSettings, type PostHogSettings, type SettingsResult } from 'src/lib/settings';
-import { TwentyRateLimitError } from 'src/lib/twenty-errors';
 import { writeActivity, type ActivityChange } from 'src/lib/write-activity';
 
 // Flow and failure paths: TCA-20 "Hourly sync". Scheduling and lease: D-TCA-27-job-scheduling,
-// D-TCA-27-shared-write-lease.
+// D-TCA-27-shared-write-lease. Cursor window: D-TCA-20-sync-cursor-window. Input guards:
+// D-TCA-29-sync-input-guards.
 
-export type SyncStatus =
-  | 'ok'
-  | 'locked'
-  | 'not_configured'
-  | 'idle'
-  | 'rate_limited'
-  | 'timeout'
-  | 'error';
+export type SyncStatus = 'ok' | 'locked' | 'not_configured' | 'idle' | JobFailureStatus;
 
 export type SyncDeps = {
   now: () => Date;
@@ -57,11 +52,12 @@ export type SyncDeps = {
 export const SYNC_CURSOR_KEY = 'sync:cursor';
 
 const JOB_PREFIX = 'posthog-sync';
-// Above the job's timeoutSeconds (300), per D-TCA-27-shared-write-lease.
-const LEASE_TTL_SECONDS = 330;
+export const SYNC_TIMEOUT_SECONDS = 300;
+// Above the job's timeout, per D-TCA-27-shared-write-lease.
+const LEASE_TTL_SECONDS = SYNC_TIMEOUT_SECONDS + 30;
 // Late-ingested events carry earlier timestamps; this lag keeps them inside a later window.
 const INGESTION_LAG_MS = 10 * 60_000;
-const FIRST_RUN_LOOKBACK_MS = 30 * 86_400_000;
+const FIRST_RUN_LOOKBACK_MS = 30 * DAY_MS;
 const ROW_LIMIT = 5000;
 
 const DEFAULT_DEPS: SyncDeps = {
@@ -74,26 +70,12 @@ const DEFAULT_DEPS: SyncDeps = {
   log: console.log,
 };
 
-// The cron's whole job: one bucketed, delayed enqueue, never retried by the queue.
 export const enqueueSync = (workspaceId: string, now: Date = new Date()) =>
-  enqueueJobs({
-    logicFunctionUniversalIdentifier: SYNC_JOB_FUNCTION_UNIVERSAL_IDENTIFIER,
-    jobs: [{ jobId: hourBucketJobId(JOB_PREFIX, now) }],
-    delayMs: stableOffsetMs(workspaceId, JOB_OFFSET_WINDOW_MS),
-    retryLimit: 0,
-  });
+  enqueueBucketedJob(SYNC_JOB_FUNCTION_UNIVERSAL_IDENTIFIER, hourBucketJobId(JOB_PREFIX, now), workspaceId);
 
 const midpoint = (a: Date, b: Date) => new Date(Math.floor((a.getTime() + b.getTime()) / 2));
 
 const isTimeout = (error: unknown) => error instanceof PostHogError && error.kind === 'timeout';
-
-const statusFor = (error: unknown): SyncStatus => {
-  if (error instanceof TwentyRateLimitError) return 'rate_limited';
-  if (error instanceof PostHogError && (error.kind === 'rate_limited' || error.kind === 'timeout')) {
-    return error.kind;
-  }
-  return 'error';
-};
 
 const describeError = (error: unknown) =>
   error instanceof PostHogError
@@ -218,7 +200,7 @@ export const runSync = async (overrides: Partial<SyncDeps> = {}): Promise<{ stat
     }
     return { status: await syncWindow(deps, now) };
   } catch (error) {
-    const status = statusFor(error);
+    const status = jobFailureStatus(error);
     deps.log(`posthog-sync: stopped (${status}), cursor kept`, describeError(error));
     return { status };
   } finally {

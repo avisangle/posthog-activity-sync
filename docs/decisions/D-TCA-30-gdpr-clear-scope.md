@@ -10,7 +10,7 @@ all four PostHog fields when the email is no longer in PostHog persons (for exam
 GDPR). A person deleted from PostHog whose `posthogLastSeenAt` is older than 31 days keeps the
 values Twenty already holds.
 
-**Why:** The recount sends one PostHog query per 500 people it reads, and each query's bytes read
+**Why:** The recount sends one PostHog query per 500 distinct emails among the people it reads, and each query's bytes read
 counts against the project's query budget. Bounding the read by `posthogLastSeenAt` keeps the
 daily cost proportional to recently active people instead of to every person who ever had
 PostHog activity. 31 days covers the 30-day page view window plus a day of slack, so every person

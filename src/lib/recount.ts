@@ -1,19 +1,33 @@
-import { acquireLease, ACTIVITY_WRITE_LEASE, releaseLease } from 'src/lib/jobs';
+import { RECOUNT_JOB_FUNCTION_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+import {
+  acquireLease,
+  ACTIVITY_WRITE_LEASE,
+  dayBucketJobId,
+  enqueueBucketedJob,
+  jobFailureStatus,
+  releaseLease,
+  type JobFailureStatus,
+} from 'src/lib/jobs';
 import {
   addByEmail,
   findRecentlySeenPeople,
   type ActivityValues,
   type PersonSnapshot,
 } from 'src/lib/match-people';
-import { createPostHogClient, PostHogError } from 'src/lib/posthog-client';
-import { pageviewCountsQuery, parsePageviewCounts } from 'src/lib/queries';
-import { readSettings } from 'src/lib/settings';
-import { TwentyRateLimitError } from 'src/lib/twenty-errors';
+import { createPostHogClient, errorText } from 'src/lib/posthog-client';
+import {
+  DAY_MS,
+  PAGEVIEW_WINDOW_DAYS,
+  pageviewCountsQuery,
+  parsePageviewCounts,
+} from 'src/lib/queries';
+import { readSettings, type SettingsResult } from 'src/lib/settings';
 import { clearActivity, writeActivity, type ActivityChange } from 'src/lib/write-activity';
 
-// Clear scope: D-TCA-30-gdpr-clear-scope. Lease: D-TCA-27-shared-write-lease.
+// Clear scope: D-TCA-30-gdpr-clear-scope. Scheduling and lease: D-TCA-27-job-scheduling,
+// D-TCA-27-shared-write-lease.
 
-export type RecountStatus = 'ok' | 'locked' | 'not_configured' | 'rate_limited' | 'timeout' | 'error';
+export type RecountStatus = 'ok' | 'locked' | 'not_configured' | JobFailureStatus;
 
 type Tally = { people: number; batches: number; written: number; cleared: number; bytesRead: number };
 
@@ -21,7 +35,7 @@ export type RecountResult = Tally & { status: RecountStatus };
 
 type RecountDeps = {
   now: () => Date;
-  readSettings: () => ReturnType<typeof readSettings>;
+  readSettings: () => SettingsResult;
   createClient: typeof createPostHogClient;
   findRecentlySeenPeople: typeof findRecentlySeenPeople;
   writeActivity: typeof writeActivity;
@@ -37,18 +51,15 @@ const DEFAULT_DEPS: RecountDeps = {
   log: (line) => console.log(line),
 };
 
-const RECENT_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+const JOB_PREFIX = 'posthog-recount';
+// The page-view window plus a day of slack, so every count that can still decay is recounted.
+const RECENT_WINDOW_MS = (PAGEVIEW_WINDOW_DAYS + 1) * DAY_MS;
 const EMAILS_PER_QUERY = 500;
 export const RECOUNT_TIMEOUT_SECONDS = 300;
 const LEASE_TTL_SECONDS = RECOUNT_TIMEOUT_SECONDS + 30;
 
-const statusFor = (error: unknown): RecountStatus => {
-  if (error instanceof TwentyRateLimitError) return 'rate_limited';
-  if (error instanceof PostHogError && (error.kind === 'rate_limited' || error.kind === 'timeout')) {
-    return error.kind;
-  }
-  return 'error';
-};
+export const enqueueRecount = (workspaceId: string, now: Date = new Date()) =>
+  enqueueBucketedJob(RECOUNT_JOB_FUNCTION_UNIVERSAL_IDENTIFIER, dayBucketJobId(JOB_PREFIX, now), workspaceId);
 
 // One PostHog query per 500 emails, each batch written before the next query.
 const recount = async (deps: RecountDeps, now: Date, tally: Tally): Promise<RecountStatus> => {
@@ -64,7 +75,7 @@ const recount = async (deps: RecountDeps, now: Date, tally: Tally): Promise<Reco
 
   for (let i = 0; i < emails.length; i += EMAILS_PER_QUERY) {
     const batch = emails.slice(i, i + EMAILS_PER_QUERY);
-    const result = await runQuery({ ...pageviewCountsQuery({ emails: batch, now }), name: 'recount' });
+    const result = await runQuery({ ...pageviewCountsQuery({ emails: batch, now }), name: 'recount-pageview-counts' });
     tally.batches += 1;
     tally.bytesRead += result.bytesRead ?? 0;
 
@@ -92,21 +103,23 @@ export const runRecount = async (overrides: Partial<RecountDeps> = {}): Promise<
   const tally: Tally = { people: 0, batches: 0, written: 0, cleared: 0, bytesRead: 0 };
   let status: RecountStatus;
   let reason = '';
+  let leased = false;
   try {
-    if (!(await acquireLease(ACTIVITY_WRITE_LEASE, now, LEASE_TTL_SECONDS))) {
-      return { status: 'locked', ...tally };
-    }
-    try {
-      status = await recount(deps, now, tally);
-    } finally {
-      await releaseLease(ACTIVITY_WRITE_LEASE);
-    }
+    leased = await acquireLease(ACTIVITY_WRITE_LEASE, now, LEASE_TTL_SECONDS);
+    status = leased ? await recount(deps, now, tally) : 'locked';
   } catch (error) {
-    status = statusFor(error);
-    reason = ` (${error instanceof Error ? error.message : String(error)})`;
+    status = jobFailureStatus(error);
+    reason = ` (${errorText(error)})`;
+  } finally {
+    // A failed release must not replace the run's own status; the lease expires on its own.
+    if (leased) {
+      await releaseLease(ACTIVITY_WRITE_LEASE).catch((error) =>
+        deps.log(`posthog-recount: could not release the write lease (${errorText(error)})`),
+      );
+    }
   }
   deps.log(
-    `posthog recount ${status}${reason}: people=${tally.people} batches=${tally.batches} ` +
+    `posthog-recount: ${status}${reason}: people=${tally.people} batches=${tally.batches} ` +
       `written=${tally.written} cleared=${tally.cleared} bytesRead=${tally.bytesRead}`,
   );
   return { status, ...tally };

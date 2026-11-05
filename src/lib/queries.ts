@@ -36,8 +36,8 @@ const HEALTH_PROBE_SQL =
 
 // PostHog silently clamps a larger LIMIT to 50,000 (D-TCA-22 observation 2).
 const MAX_LIMIT = 50_000;
-const DAY_MS = 86_400_000;
-const PAGEVIEW_WINDOW_DAYS = 30;
+export const DAY_MS = 86_400_000;
+export const PAGEVIEW_WINDOW_DAYS = 30;
 
 // The one email normaliser for Twenty emails and bound values; blank gives ''.
 export const normalizeEmail = (email: string | null | undefined): string =>
