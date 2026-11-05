@@ -45,8 +45,7 @@ const ProductActivity = () => {
       })
       .catch(() => {
         if (!cancelled) setRequest({ phase: 'failed', timedOut });
-      })
-      .finally(() => clearTimeout(timer));
+      });
 
     return () => {
       cancelled = true;
@@ -67,73 +66,75 @@ const ProductActivity = () => {
     fontFamily: theme.font.family,
   } as const;
 
-  if (view.kind === 'loading') {
-    return (
-      <div style={container} aria-busy="true" aria-label="Loading PostHog activity">
-        {Array.from({ length: LOADING_ROWS }, (_, i) => (
+  const renderBody = () => {
+    switch (view.kind) {
+      case 'loading':
+        return Array.from({ length: LOADING_ROWS }, (_, i) => (
           <Skeleton key={i} width="100%" height={theme.spacing[6]} />
-        ))}
-      </div>
-    );
-  }
+        ));
+      case 'empty':
+        return (
+          <Text size="sm" color="tertiary">
+            {view.message}
+          </Text>
+        );
+      case 'error':
+        return (
+          <Callout
+            status="error"
+            title={view.message}
+            fullWidth
+            action={
+              <LightButton startIcon={<IconRefresh size={16} />} onClick={() => setAttempt((n) => n + 1)}>
+                Try again
+              </LightButton>
+            }
+          />
+        );
+      case 'events':
+        return (
+          <>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: theme.spacing[2] }}>
+              {view.events.map((row, i) => (
+                <li
+                  key={i}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: theme.spacing[2], minWidth: 0 }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minWidth: 0 }}>
+                    <OverflowingTextWithTooltip text={row.event} size="md" weight="medium" color="primary" />
+                    {row.url !== null && <OverflowingTextWithTooltip text={row.url} size="sm" color="tertiary" />}
+                  </div>
+                  <Text size="sm" color="tertiary" style={{ flex: 'none', whiteSpace: 'nowrap' }}>
+                    {row.relativeTime}
+                  </Text>
+                </li>
+              ))}
+            </ul>
+            {view.profileUrl !== null && (
+              <div>
+                <LightButton
+                  href={view.profileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  startIcon={<IconExternalLink size={16} />}
+                >
+                  Open PostHog profile
+                </LightButton>
+              </div>
+            )}
+          </>
+        );
+    }
+  };
 
-  if (view.kind === 'empty') {
-    return (
-      <div style={container}>
-        <Text size="sm" color="tertiary">
-          {view.message}
-        </Text>
-      </div>
-    );
-  }
-
-  if (view.kind === 'error') {
-    return (
-      <div style={container}>
-        <Callout
-          status="error"
-          title={view.message}
-          fullWidth
-          action={
-            <LightButton startIcon={<IconRefresh size={16} />} onClick={() => setAttempt((n) => n + 1)}>
-              Try again
-            </LightButton>
-          }
-        />
-      </div>
-    );
-  }
-
+  const isLoading = view.kind === 'loading';
   return (
-    <div style={container}>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: theme.spacing[2] }}>
-        {view.events.map((row, i) => (
-          <li
-            key={i}
-            style={{ display: 'flex', alignItems: 'baseline', gap: theme.spacing[2], minWidth: 0 }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minWidth: 0 }}>
-              <OverflowingTextWithTooltip text={row.event} size="md" weight="medium" color="primary" />
-              {row.url !== null && <OverflowingTextWithTooltip text={row.url} size="sm" color="tertiary" />}
-            </div>
-            <Text size="sm" color="tertiary" style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              {row.relativeTime}
-            </Text>
-          </li>
-        ))}
-      </ul>
-      {view.profileUrl !== null && (
-        <div>
-          <LightButton
-            href={view.profileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            startIcon={<IconExternalLink size={16} />}
-          >
-            Open PostHog profile
-          </LightButton>
-        </div>
-      )}
+    <div
+      style={container}
+      aria-busy={isLoading}
+      aria-label={isLoading ? 'Loading PostHog activity' : undefined}
+    >
+      {renderBody()}
     </div>
   );
 };
