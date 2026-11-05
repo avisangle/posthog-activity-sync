@@ -32,7 +32,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi, type Mock } from 'vitest';
 
 import * as identifiers from 'src/constants/universal-identifiers';
 import { ACTIVITY_WRITE_LEASE } from 'src/lib/jobs';
@@ -140,16 +140,19 @@ const fakePostHog = (counts: Record<string, number>) =>
     };
   });
 
+type MockDeps = { [K in keyof Deps]: Mock<Deps[K]> };
+
 const makeDeps = (people: PersonSnapshot[], counts: Record<string, number>, overrides: Partial<Deps> = {}) => {
   const runQuery = fakePostHog(counts);
-  const deps = {
+  const deps: MockDeps = {
     now: vi.fn<Deps['now']>(() => NOW),
     readSettings: vi.fn<Deps['readSettings']>(() => ({ ok: true, settings: SETTINGS })),
     createClient: vi.fn<Deps['createClient']>(() => ({ runQuery })),
     findRecentlySeenPeople: vi.fn<Deps['findRecentlySeenPeople']>(async () => people),
     writeActivity: vi.fn<Deps['writeActivity']>(async (changes) => ({ written: changes.length, unchanged: 0 })),
     log: vi.fn<Deps['log']>(),
-    ...overrides,
+    // Every override in this file is a vi.fn mock.
+    ...(overrides as Partial<MockDeps>),
   };
   return { deps, runQuery };
 };
