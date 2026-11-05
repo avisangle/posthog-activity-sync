@@ -1,5 +1,5 @@
 # D-TCA-22: Confirmed PostHog query shapes, error matrix and Twenty write method
-**Status:** Accepted; partly superseded by D-TCA-24-caller-clock-windows (pageviewCounts and latestEvents texts, profile URL host)
+**Status:** Accepted; partly superseded by D-TCA-24-caller-clock-windows (pageviewCounts and latestEvents texts, profile URL host); partly superseded by D-TCA-20-posthog-request-contract (request `name`, client abort maps to `timeout`, no LIMIT on single-row aggregates)
 **Date:** 2026-11-04
 **Issue:** TCA-22
 **Confluence:** none
@@ -56,6 +56,8 @@ creates a blank Person for an unknown id and restores a soft-deleted Person (det
   project`, or 404 -> `project_not_found`; 429 (any code) -> `rate_limited` carrying
   `Retry-After`; 504 -> `timeout`; 400 -> `bad_query`; fetch rejection -> `unreachable`; other
   5xx -> `server_error`. Never treat 403 as missing scope by status alone. Never log the key.
+  Superseded in part by D-TCA-20-posthog-request-contract: the body also carries `name`, and the
+  client's own timeout abort maps to `timeout`, not `unreachable`.
 - **TCA-24 (queries):** use the four query texts below verbatim, with the listed `values` names
   and types. Lowercase emails before binding them. Every query keeps an explicit `LIMIT`; the
   caller's limit must be at most 50,000. Page-view counts use `uniqExact(uuid)`, never `count()`.
@@ -67,6 +69,8 @@ creates a blank Person for an unknown id and restores a soft-deleted Person (det
   which binds their window from the caller's `now` and latestEvents' `LIMIT {limit}`. Also
   superseded there: `appHost` is `readSettings().host`, which is `POSTHOG_CUSTOM_HOST` when
   `POSTHOG_HOST` is `custom` (the stored value `custom` is not a host).
+  The explicit-`LIMIT` rule covers row-returning queries only; single-row aggregates such as
+  healthProbe need none (D-TCA-20-posthog-request-contract).
 - **TCA-26 (health check):** only the healthProbe query; no `GET /api/projects/{id}/`. A wrong
   region surfaces as `unauthorized` (the key is unknown in the other region), so its message must
   mention the host setting.

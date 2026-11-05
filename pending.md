@@ -1,3 +1,4 @@
 # Pending
 
 - TCA-26: banner check on lead-scoring.twenty.com Settings > Apps > PostHog Activity (valid settings, wrong key, wrong project ID, other region). The same four cases passed live against PostHog through `checkHealth`; only the in-Twenty banner rendering is unchecked. Unblocked by a deploy of the app to the demo workspace with approval to change its settings; TCA-32 (verified setup flow) covers it.
+- TCA-20 level 2: PostHog emails are lowercased but not trimmed in HogQL (`queries.ts` activeSince and pageviewCounts), while the builders trim the bound emails in JS. A PostHog person whose email property has surrounding whitespace drops out of the page-view map, so the TCA-30 recount would clear them daily. Fixing it changes texts D-TCA-22 and D-TCA-24 fix verbatim. Unblocked by a live run of `trim(lower(...))` variants against the seeded project, then a record amending both.
