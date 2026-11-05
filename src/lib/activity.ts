@@ -9,11 +9,13 @@ import {
 import { createPostHogClient, PostHogError, type PostHogErrorKind } from 'src/lib/posthog-client';
 import {
   latestEventsQuery,
+  normalizeEmail,
   parseLatestEvents,
   profileUrl,
   type LatestEvent,
 } from 'src/lib/queries';
 import { readSettings } from 'src/lib/settings';
+import { TwentyRateLimitError, withRateLimit } from 'src/lib/twenty-errors';
 
 export type ActivityEvent = Omit<LatestEvent, 'personRef'>;
 
@@ -55,14 +57,18 @@ const ERROR_RESPONSES: Record<PostHogErrorKind, ActivityResponse> = {
   server_error: problem('error', GENERIC),
 };
 
+type PersonEmail = { person: { emails: { primaryEmail: string | null } | null } | null };
+
 export const readPrimaryEmail = async (personId: string): Promise<string | null> => {
   const client = new CoreApiClient();
-  const result = await client.query({
-    person: {
-      __args: { filter: { id: { eq: personId } } },
-      emails: { primaryEmail: true },
-    },
-  });
+  const result: PersonEmail = await withRateLimit(() =>
+    client.query({
+      person: {
+        __args: { filter: { id: { eq: personId } } },
+        emails: { primaryEmail: true },
+      },
+    }),
+  );
   return result.person?.emails?.primaryEmail ?? null;
 };
 
@@ -86,8 +92,7 @@ export const getActivity = async (
   if (!config.ok) return problem('not_configured', 'Connect PostHog in Settings > Apps');
 
   try {
-    // latestEventsQuery lowercases before binding.
-    const email = (await deps.readPrimaryEmail(personId))?.trim();
+    const email = normalizeEmail(await deps.readPrimaryEmail(personId));
     if (!email) return problem('no_email', 'No email on this person');
 
     const client = deps.createClient(config.settings, { timeoutMs: ROUTE_POSTHOG_TIMEOUT_MS });
@@ -102,6 +107,7 @@ export const getActivity = async (
       profileUrl: profileUrl(config.settings.host, config.settings.projectId, events[0].personRef),
     };
   } catch (error) {
+    if (error instanceof TwentyRateLimitError) return problem('rate_limited', 'Twenty is busy, try again in a minute');
     return error instanceof PostHogError ? { ...ERROR_RESPONSES[error.kind] } : problem('error', GENERIC);
   }
 };

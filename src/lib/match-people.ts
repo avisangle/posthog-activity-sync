@@ -1,5 +1,6 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { normalizeEmail } from 'src/lib/queries';
 import { withRateLimit } from 'src/lib/twenty-errors';
 
 export type ActivityValues = {
@@ -50,13 +51,10 @@ export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, '\\$&');
 // A cleared LINKS field reads back as ''.
 export const linkUrl = (url: string | null | undefined): string | null => url || null;
 
-const normalizeEmail = (email: string | null | undefined): string | null =>
-  email?.trim().toLowerCase() || null;
-
 const toSnapshot = (node: PersonNode): PersonSnapshot =>
   ({
     id: node.id,
-    email: normalizeEmail(node.emails?.primaryEmail),
+    email: normalizeEmail(node.emails?.primaryEmail) || null,
     posthogLastSeenAt: node.posthogLastSeenAt ?? null,
     posthogPageviews30d: node.posthogPageviews30d ?? null,
     posthogLastPage: linkUrl(node.posthogLastPage?.primaryLinkUrl),
@@ -96,7 +94,7 @@ export const addByEmail = (groups: Map<string, PersonSnapshot[]>, snapshot: Pers
 export const findPeopleByEmails = async (
   emails: string[],
 ): Promise<Map<string, PersonSnapshot[]>> => {
-  const wanted = [...new Set(emails.map(normalizeEmail))].filter((e): e is string => e !== null);
+  const wanted = [...new Set(emails.map(normalizeEmail))].filter(Boolean);
   const wantedSet = new Set(wanted);
   const matches = new Map<string, PersonSnapshot[]>();
   if (wanted.length === 0) return matches;
