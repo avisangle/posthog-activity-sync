@@ -20,7 +20,8 @@ const NOW = new Date('2026-11-05T12:00:00.000Z');
 const SETTINGS = { host: 'https://us.posthog.com', projectId: '1', apiKey: 'phx_test' };
 const BOB = { id: 'b0b', email: 'bob@example.com' } as PersonSnapshot;
 
-const deps = (activeRows: unknown[][], writeActivity = vi.fn(async () => ({ written: 1, unchanged: 0 }))) => {
+const deps = (activeRows: unknown[][]) => {
+  const writeActivity = vi.fn<SyncDeps['writeActivity']>(async () => ({ written: 1, unchanged: 0 }));
   const runQuery = vi.fn(async ({ name }: { name: string }): Promise<QueryResult> =>
     name === 'sync-active-since'
       ? { columns: ['email', 'last_seen', 'last_url', 'person_id'], results: activeRows, bytesRead: null }
@@ -30,9 +31,8 @@ const deps = (activeRows: unknown[][], writeActivity = vi.fn(async () => ({ writ
     now: () => NOW,
     readSettings: () => ({ ok: true, settings: SETTINGS }),
     createClient: () => ({ runQuery }),
-    findPeopleByEmails: vi.fn(async (emails: string[]) =>
+    findPeopleByEmails: async (emails) =>
       new Map(emails.includes('bob@example.com') ? [['bob@example.com', [BOB]]] : []),
-    ),
     writeActivity,
     log: vi.fn(),
   };
@@ -47,16 +47,14 @@ describe('runSync guards', () => {
     async (url) => {
       const { overrides, writeActivity } = deps([['bob@example.com', '2026-11-05T11:00:00Z', url, 'ph-bob']]);
       await expect(runSync(overrides)).resolves.toEqual({ status: 'ok' });
-      const [[changes]] = writeActivity.mock.calls as unknown as [[{ next: object }[]]];
-      expect('posthogLastPage' in changes[0].next).toBe(false);
+      expect('posthogLastPage' in writeActivity.mock.calls[0][0][0].next).toBe(false);
     },
   );
 
   it('keeps an http last URL', async () => {
     const { overrides, writeActivity } = deps([['bob@example.com', '2026-11-05T11:00:00Z', 'http://site.test/a', 'ph-bob']]);
     await runSync(overrides);
-    const [[changes]] = writeActivity.mock.calls as unknown as [[{ next: { posthogLastPage?: string } }[]]];
-    expect(changes[0].next.posthogLastPage).toBe('http://site.test/a');
+    expect(writeActivity.mock.calls[0][0][0].next.posthogLastPage).toBe('http://site.test/a');
   });
 
   it('a full page whose last row ties the cursor moves the cursor 1 ms past it', async () => {

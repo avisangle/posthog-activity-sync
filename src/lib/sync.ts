@@ -9,9 +9,10 @@ import {
   releaseLease,
   stableOffsetMs,
 } from 'src/lib/jobs';
-import { findPeopleByEmails, type ActivityValues, type PersonSnapshot } from 'src/lib/match-people';
+import { findPeopleByEmails, type ActivityValues } from 'src/lib/match-people';
 import {
   createPostHogClient,
+  errorText,
   PostHogError,
   type QueryResult,
   type RunQueryInput,
@@ -88,8 +89,10 @@ const isTimeout = (error: unknown) => error instanceof PostHogError && error.kin
 
 const statusFor = (error: unknown): SyncStatus => {
   if (error instanceof TwentyRateLimitError) return 'rate_limited';
-  if (error instanceof PostHogError && error.kind === 'rate_limited') return 'rate_limited';
-  return isTimeout(error) ? 'timeout' : 'error';
+  if (error instanceof PostHogError && (error.kind === 'rate_limited' || error.kind === 'timeout')) {
+    return error.kind;
+  }
+  return 'error';
 };
 
 const describeError = (error: unknown) =>
@@ -100,11 +103,11 @@ const describeError = (error: unknown) =>
         retryAfterSeconds: error.retryAfterSeconds,
         budgetExceeded: error.budgetExceeded,
       }
-    : { error: error instanceof Error ? error.message : String(error) };
+    : { error: errorText(error) };
 
 // $current_url is set by the tracked browser, so a javascript: or data: URL must not become a link.
-const isWebUrl = (url: string) => {
-  const protocol = URL.parse(url)?.protocol;
+const isWebUrl = (url: string | null) => {
+  const protocol = url === null ? undefined : URL.parse(url)?.protocol;
   return protocol === 'http:' || protocol === 'https:';
 };
 
@@ -115,7 +118,7 @@ const nextValues = (
 ): Partial<ActivityValues> => ({
   posthogLastSeenAt: row.lastSeenAt,
   // A window holding only custom events must not blank the last page.
-  ...(row.lastUrl !== null && isWebUrl(row.lastUrl) && { posthogLastPage: row.lastUrl }),
+  ...(isWebUrl(row.lastUrl) && { posthogLastPage: row.lastUrl }),
   posthogPageviews30d: pageviews,
   posthogProfile: profileUrl(settings.host, settings.projectId, row.personRef),
 });
@@ -159,11 +162,11 @@ const syncWindow = async (deps: SyncDeps, now: Date): Promise<SyncStatus> => {
     rows = await activeSince(until);
   }
 
-  const people: Map<string, PersonSnapshot[]> =
-    rows.length > 0 ? await deps.findPeopleByEmails(rows.map((row) => row.email)) : new Map();
-  // findPeopleByEmails keys by trimmed, lowercased email; PostHog already lowercased it.
+  // Both maps key by email as activeSince returns it (lowercased in HogQL). Untrimmed PostHog
+  // emails are a known gap: pending.md, TCA-20 level 2.
+  const people = await deps.findPeopleByEmails(rows.map((row) => row.email));
   const matched = rows.flatMap((row) => {
-    const snapshots = people.get(row.email.trim());
+    const snapshots = people.get(row.email);
     return snapshots ? [{ row, snapshots }] : [];
   });
 
@@ -175,12 +178,10 @@ const syncWindow = async (deps: SyncDeps, now: Date): Promise<SyncStatus> => {
         name: 'sync-pageview-counts',
       }),
     );
-    const changes: ActivityChange[] = matched.flatMap(({ row, snapshots }) =>
-      snapshots.map((snapshot) => ({
-        snapshot,
-        next: nextValues(row, counts.get(row.email) ?? 0, settings),
-      })),
-    );
+    const changes: ActivityChange[] = matched.flatMap(({ row, snapshots }) => {
+      const next = nextValues(row, counts.get(row.email) ?? 0, settings);
+      return snapshots.map((snapshot) => ({ snapshot, next }));
+    });
     ({ written } = await deps.writeActivity(changes));
   }
 
