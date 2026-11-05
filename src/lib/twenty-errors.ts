@@ -1,6 +1,6 @@
 export class TwentyRateLimitError extends Error {
-  constructor(message = 'Twenty rate limit reached', options?: ErrorOptions) {
-    super(message, options);
+  constructor(message = 'Twenty rate limit reached') {
+    super(message);
     this.name = 'TwentyRateLimitError';
   }
 }
@@ -16,7 +16,7 @@ export const withRateLimit = async <T>(call: () => Promise<T>): Promise<T> => {
     return await call();
   } catch (error) {
     if (isTwentyRateLimit(error)) {
-      throw new TwentyRateLimitError((error as Error).message, { cause: error });
+      throw new TwentyRateLimitError((error as Error).message);
     }
     throw error;
   }
