@@ -1,5 +1,5 @@
 # D-TCA-22: Confirmed PostHog query shapes, error matrix and Twenty write method
-**Status:** Accepted; partly superseded by D-TCA-24-caller-clock-windows (pageviewCounts and latestEvents texts, profile URL host)
+**Status:** Accepted; partly superseded by D-TCA-24-caller-clock-windows (pageviewCounts and latestEvents texts, profile URL host); partly superseded by D-TCA-27-shared-write-lease (Twenty write payload: all four fields per changed record)
 **Date:** 2026-11-04
 **Issue:** TCA-22
 **Confluence:** none
@@ -10,8 +10,9 @@ amended by D-TCA-24-caller-clock-windows) posted to
 `values` and every query carrying an explicit `LIMIT`. Errors map to kinds by HTTP status plus
 the body's `code` and `detail`. The health check uses only the HogQL probe. Profile links are
 `{host}/project/{projectId}/persons/{person_id}`. Twenty writes use
-`createPeople(data, upsert: true)` with `{ id, <changed fields> }`, restricted to ids read in the
-same run.
+`createPeople(data, upsert: true)` with `{ id, <changed fields> }`
+(superseded by D-TCA-27-shared-write-lease: all four fields per changed record), restricted to
+ids read in the same run.
 
 **Why:** Every point was observed on 2026-11-04 against a seeded PostHog Cloud US project and the
 demo workspace `lead-scoring.twenty.com`, except the rows marked "from docs, not observed". Four
@@ -76,6 +77,8 @@ creates a blank Person for an unknown id and restores a soft-deleted Person (det
   `{ primaryLinkUrl, primaryLinkLabel, secondaryLinks }`; clear a LINKS field with
   `{ primaryLinkUrl: '', primaryLinkLabel: '', secondaryLinks: [] }` (`null` is ignored); clear
   DATE_TIME and NUMBER with `null`.
+  Superseded for the payload by D-TCA-27-shared-write-lease, which sends all four fields per
+  changed record and requires every writing job to hold ACTIVITY_WRITE_LEASE.
 
 ## Evidence
 
