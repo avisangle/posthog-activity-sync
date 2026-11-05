@@ -27,6 +27,7 @@ import * as identifiers from 'src/constants/universal-identifiers';
 import type { ActivityEvent, ActivityResponse } from 'src/lib/activity';
 import { PostHogError, type PostHogErrorKind } from 'src/lib/posthog-client';
 import { latestEventsQuery, profileUrl } from 'src/lib/queries';
+import { TwentyRateLimitError } from 'src/lib/twenty-errors';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 
@@ -309,6 +310,21 @@ describe('getActivity: errors (steps 6 and 7), never throws', () => {
     });
     await expect(getActivity(PERSON_ID, fromParse.deps)).resolves.toEqual(GENERIC);
   });
+
+  it('a Twenty throttle while reading the email returns rate_limited naming Twenty', async () => {
+    const { getActivity } = await loadActivity();
+    const { deps } = makeDeps({
+      readPrimaryEmail: vi.fn(async () => {
+        throw new TwentyRateLimitError();
+      }),
+    });
+
+    await expect(getActivity(PERSON_ID, deps)).resolves.toEqual({
+      status: 'rate_limited',
+      message: 'Twenty is busy, try again in a minute',
+    });
+    expect(deps.createClient).not.toHaveBeenCalled();
+  });
 });
 
 describe('readPrimaryEmail and the route handler', () => {
@@ -327,6 +343,13 @@ describe('readPrimaryEmail and the route handler', () => {
 
     query.mockResolvedValueOnce({ person: { emails: { primaryEmail: null } } });
     await expect(readPrimaryEmail(PERSON_ID)).resolves.toBeNull();
+  });
+
+  it('readPrimaryEmail rethrows a throttled Twenty read as TwentyRateLimitError', async () => {
+    const { readPrimaryEmail } = await loadActivity();
+
+    query.mockRejectedValueOnce(new Error('Too Many Requests: ThrottlerException: Too Many Requests'));
+    await expect(readPrimaryEmail(PERSON_ID)).rejects.toBeInstanceOf(TwentyRateLimitError);
   });
 
   it('the handler passes queryStringParameters.personId to getActivity with the real deps', async () => {

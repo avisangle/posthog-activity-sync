@@ -39,7 +39,9 @@ const MAX_LIMIT = 50_000;
 const DAY_MS = 86_400_000;
 const PAGEVIEW_WINDOW_DAYS = 30;
 
-const normalizeEmail = (email: string) => email.trim().toLowerCase();
+// The one email normaliser for Twenty emails and bound values; blank gives ''.
+export const normalizeEmail = (email: string | null | undefined): string =>
+  (email ?? '').trim().toLowerCase();
 
 const daysBefore = (now: Date, days: number) => new Date(now.getTime() - days * DAY_MS).toISOString();
 

@@ -183,6 +183,17 @@ describe('query builders', () => {
   });
 });
 
+describe('normalizeEmail: the one email normaliser', () => {
+  it('trims and lowercases; null, undefined and blank give an empty string', async () => {
+    const { normalizeEmail } = await loadQueries();
+
+    expect(normalizeEmail('  Ada.Lovelace@Example.COM ')).toBe('ada.lovelace@example.com');
+    expect(normalizeEmail(null)).toBe('');
+    expect(normalizeEmail(undefined)).toBe('');
+    expect(normalizeEmail(' \t ')).toBe('');
+  });
+});
+
 describe('bytes fence: every events query is bounded by a bound timestamp from the caller', () => {
   it('binds the lower bound to the caller since, now - 30 days, or now - days', async () => {
     const q = await loadQueries();
