@@ -1,6 +1,6 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
-import type { ActivityValues, PersonSnapshot } from 'src/lib/match-people';
+import { linkUrl, type ActivityValues, type PersonSnapshot } from 'src/lib/match-people';
 import { withRateLimit } from 'src/lib/twenty-errors';
 
 // Write method and LINKS shapes: D-TCA-22-posthog-api-shapes. Payload: D-TCA-27-shared-write-lease.
@@ -15,23 +15,20 @@ const KEYS = [
   'posthogProfile',
 ] as const satisfies readonly (keyof ActivityValues)[];
 
-// A cleared LINKS field reads back as ''.
-const url = (value: string | null): string | null => (value === '' ? null : value);
-
 const sameInstant = (a: string | null, b: string | null): boolean =>
   a === b || (a !== null && b !== null && Date.parse(a) === Date.parse(b));
 
 const isSame = (key: keyof ActivityValues, a: unknown, b: unknown): boolean => {
   if (key === 'posthogLastSeenAt') return sameInstant(a as string | null, b as string | null);
   if (key === 'posthogLastPage' || key === 'posthogProfile') {
-    return url(a as string | null) === url(b as string | null);
+    return linkUrl(a as string | null) === linkUrl(b as string | null);
   }
   return a === b;
 };
 
 // Twenty ignores null on a LINKS field and replaces the composite whole, so always send all of it.
 const link = (value: string | null, label: string) => {
-  const target = url(value);
+  const target = linkUrl(value);
   return target === null
     ? { primaryLinkUrl: '', primaryLinkLabel: '', secondaryLinks: [] }
     : { primaryLinkUrl: target, primaryLinkLabel: label, secondaryLinks: [] };

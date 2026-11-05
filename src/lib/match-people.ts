@@ -47,6 +47,9 @@ type PeoplePage = {
 
 export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, '\\$&');
 
+// A cleared LINKS field reads back as ''.
+export const linkUrl = (url: string | null | undefined): string | null => url || null;
+
 const normalizeEmail = (email: string | null | undefined): string | null =>
   email?.trim().toLowerCase() || null;
 
@@ -56,8 +59,8 @@ const toSnapshot = (node: PersonNode): PersonSnapshot =>
     email: normalizeEmail(node.emails?.primaryEmail),
     posthogLastSeenAt: node.posthogLastSeenAt ?? null,
     posthogPageviews30d: node.posthogPageviews30d ?? null,
-    posthogLastPage: node.posthogLastPage?.primaryLinkUrl || null,
-    posthogProfile: node.posthogProfile?.primaryLinkUrl || null,
+    posthogLastPage: linkUrl(node.posthogLastPage?.primaryLinkUrl),
+    posthogProfile: linkUrl(node.posthogProfile?.primaryLinkUrl),
   }) as PersonSnapshot;
 
 // Reads every page of people matching `filter`, one request per page.
