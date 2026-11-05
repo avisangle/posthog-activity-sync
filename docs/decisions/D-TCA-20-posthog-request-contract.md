@@ -32,8 +32,9 @@ has none.
   stays the same.
 
 **Impact:**
-- Callers of `runQuery` pass a `name`. A caller whose function has a time budget below 15 s, such
-  as the sync and recount jobs, passes `timeoutMs` below that budget.
+- Callers of `runQuery` pass a `name`. A caller whose function budget is 15 s or less (the health
+  check and the activity route, both 15 s handlers) passes `timeoutMs` below that budget. Jobs
+  with a longer budget, such as the 300 s recount, keep the 15 s default.
 - Do not map the client's own abort to `unreachable`.
 - Row-returning queries keep an explicit, capped `LIMIT` (D-TCA-24). Single-row aggregates need
   none.
